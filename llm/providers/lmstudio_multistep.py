@@ -48,7 +48,8 @@ class LMStudioMultistepProvider:
                 LLMArgument(
                     id=it["id"], domain=it["domain"], topic=it.get("topic","multistep"),
                     pre=tuple(it.get("pre", [])), action=it["action"], effects=tuple(it.get("effects", [])),
-                    verify=it["verify"], priority=it.get("priority", 0), deadline_ms=it.get("deadline_ms", 0),source="llm",
+                    verify=it["verify"], priority=it.get("priority", 0), deadline_ms=it.get("deadline_ms", 0),
+                    source=it.get("source", "llm_planner"), role=it.get("role", "planner"),
                 )
             )
 

@@ -80,7 +80,8 @@ class OpenAIMultistepProvider:
                     verify=it["verify"],
                     priority=it.get("priority", 0),
                     deadline_ms=it.get("deadline_ms", 0),
-                    source="llm",
+                    source=it.get("source", "llm_planner"),
+                    role=it.get("role", "planner"),
                 )
             )
 

@@ -14,7 +14,9 @@ def generate_overpressure_AF(pressure: float, P_HIGH: float, target: float, time
             effects=("d/dt pressure < 0",),
             verify=VerifySpec("in_band", {"metric":"pressure","target":target,"tol":0.05,"timeout_s":timeout_s}),
             priority=10,
-            deadline_ms=200
+            deadline_ms=200,
+            source="plant_policy",
+            role="policy",
         ),
         "A_reduce_inflow": Argument(
             id="A_reduce_inflow",
@@ -25,7 +27,9 @@ def generate_overpressure_AF(pressure: float, P_HIGH: float, target: float, time
             effects=("d/dt pressure < 0",),
             verify=VerifySpec("in_band", {"metric":"pressure","target":target,"tol":0.02,"timeout_s":timeout_s}),
             priority=8,
-            deadline_ms=200
+            deadline_ms=200,
+            source="plant_policy",
+            role="policy",
         ),
         "A_wait": Argument(
             id="A_wait",
@@ -36,7 +40,9 @@ def generate_overpressure_AF(pressure: float, P_HIGH: float, target: float, time
             effects=("d/dt pressure ~ 0",),
             verify=VerifySpec("still_high", {"metric":"pressure","threshold":P_HIGH,"timeout_s":10}),
             priority=1,
-            deadline_ms=200
+            deadline_ms=200,
+            source="plant_policy",
+            role="policy",
         ),
     }
 

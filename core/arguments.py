@@ -22,6 +22,8 @@ class Argument:
     verify: VerifySpec
     priority: int = 0
     deadline_ms: int = 0
+    source: str = "unknown"
+    role: str = ""
 
 @dataclass
 class ArgFramework:

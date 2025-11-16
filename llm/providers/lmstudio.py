@@ -52,6 +52,8 @@ class LMStudioProvider:
                     verify=item["verify"],
                     priority=item.get("priority", 0),
                     deadline_ms=item.get("deadline_ms", 0),
+                    source=item.get("source", "llm_planner"),
+                    role=item.get("role", "planner"),
                 )
             )
         return llm_args

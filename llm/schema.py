@@ -11,8 +11,8 @@ class LLMArgument:
     verify: Dict
     priority: int = 0
     deadline_ms: int = 0
-    # NEW: logical source for attribution ("llm" default for providers)
-    source: str = "llm"
+    source: str = "llm_planner"
+    role: str = "planner"
 def to_core(arg: "LLMArgument"):
     from core.arguments import Argument, ActionSpec, VerifySpec
     return Argument(
@@ -20,5 +20,6 @@ def to_core(arg: "LLMArgument"):
         action=ActionSpec(arg.action["name"], arg.action.get("params", {})),
         effects=arg.effects,
         verify=VerifySpec(arg.verify["name"], arg.verify.get("params", {})),
-        priority=arg.priority, deadline_ms=arg.deadline_ms
+        priority=arg.priority, deadline_ms=arg.deadline_ms,
+        source=arg.source, role=arg.role,
     )
