@@ -1,0 +1,9 @@
+{
+  "provider": "lmstudio_multistep",
+  "model": "qwen/qwen3-4b-2507",
+  "parameters": { "temperature": 0.0, "top_p": 1.0, "max_tokens": 512 },
+  "lmstudio": {
+    "base_url": "http://127.0.0.1:1234/v1",
+    "api_key_env": "LM_STUDIO_API_KEY"
+  }
+}

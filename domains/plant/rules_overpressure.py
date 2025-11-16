@@ -1,0 +1,57 @@
+from core.arguments import Argument, ActionSpec, VerifySpec, ArgFramework
+
+def generate_overpressure_AF(pressure: float, P_HIGH: float, target: float, timeout_s: float):
+    if not (pressure > P_HIGH):
+        return ArgFramework(args={}, attacks=set())
+
+    args = {
+        "A_relief": Argument(
+            id="A_relief",
+            domain="plant",
+            topic="overpressure_alarm",
+            pre=("pressure > P_HIGH",),
+            action=ActionSpec("open_relief", {"u": 0.9}),
+            effects=("d/dt pressure < 0",),
+            verify=VerifySpec("in_band", {"metric": "pressure", "target": target, "tol": 0.05, "timeout_s": timeout_s}),
+            priority=10,
+            deadline_ms=200,
+            source="policy",
+        ),
+        "A_reduce_inflow": Argument(
+            id="A_reduce_inflow",
+            domain="plant",
+            topic="overpressure_alarm",
+            pre=("pressure > P_HIGH",),
+            action=ActionSpec("set_inflow", {"q": 0.1}),
+            effects=("d/dt pressure < 0",),
+            verify=VerifySpec("in_band", {"metric": "pressure", "target": target, "tol": 0.02, "timeout_s": timeout_s}),
+            priority=8,
+            deadline_ms=200,
+            source="policy",
+        ),
+        "A_wait": Argument(
+            id="A_wait",
+            domain="plant",
+            topic="overpressure_alarm",
+            pre=("pressure > P_HIGH",),
+            action=ActionSpec("noop", {}),
+            effects=("d/dt pressure ~ 0",),
+            verify=VerifySpec("still_high", {"metric": "pressure", "threshold": P_HIGH, "timeout_s": 10}),
+            priority=1,
+            deadline_ms=200,
+            source="safety",
+        ),
+    }
+
+    attacks = {
+        ("A_relief", "A_wait"),
+        ("A_relief", "A_reduce_inflow"),
+        # Relief is preferred under perfect conditions; keep it unattacked for grounded acceptance
+    }
+    af = ArgFramework(args=args, attacks=attacks)
+
+    af.attacks_info = [
+        {"from": "A_relief", "to": "A_wait", "reason": "Active relief lowers pressure faster than waiting.", "source": "policy"},
+        {"from": "A_relief", "to": "A_reduce_inflow", "reason": "Relief valve gives immediate reduction vs slower inflow change.", "source": "policy"},
+    ]
+    return af

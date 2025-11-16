@@ -1,0 +1,8 @@
+{
+  "project_root": "/home/derron/Desktop/agent-os-ops./agent-os-ops/",
+  "python_exe": "/home/derron/Desktop/agent-os-ops./agent-os-ops/.venv/bin/python",
+  "artifacts": {
+    "hello_stdout": "artifacts/hello_cli_stdout.txt",
+    "search_png": "artifacts/search.png"
+  }
+}
