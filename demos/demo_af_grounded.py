@@ -12,7 +12,9 @@ def make_demo_af() -> ArgFramework:
             effects=("d/dt temp < 0",),
             verify=VerifySpec("in_band", {"metric":"temp","target":70,"tol":0.5,"timeout_s":30}),
             priority=10,
-            deadline_ms=200
+            deadline_ms=200,
+            source="plant_policy",
+            role="policy",
         ),
         "A_wait": Argument(
             id="A_wait",
@@ -23,7 +25,9 @@ def make_demo_af() -> ArgFramework:
             effects=("d/dt temp ~ 0",),
             verify=VerifySpec("still_high", {"metric":"temp","threshold":75,"timeout_s":10}),
             priority=1,
-            deadline_ms=200
+            deadline_ms=200,
+            source="plant_policy",
+            role="policy",
         ),
         "A_heat": Argument(
             id="A_heat",
@@ -34,7 +38,9 @@ def make_demo_af() -> ArgFramework:
             effects=("d/dt temp > 0",),
             verify=VerifySpec("in_band", {"metric":"temp","target":70,"tol":0.5,"timeout_s":30}),
             priority=0,
-            deadline_ms=200
+            deadline_ms=200,
+            source="plant_policy",
+            role="policy",
         ),
     }
 

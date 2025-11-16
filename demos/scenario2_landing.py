@@ -6,7 +6,7 @@ import csv, math, json, time, os, sys
 from core.arguments import ArgFramework, Argument, ActionSpec, VerifySpec
 from core.af_solver import grounded_extension, filter_attacks_by_priority
 from core.planner import order_plan
-from core.logging_utils import log_event, export_csv
+from core.logging_utils import log_event, export_csv, summarize_sources
 from core.logging_utils import span, log_metrics
 from core.console import enable_utf8_stdout, emit_ok, emit_fail, emit_info, emit_line
 from core.ablation import is_no_af, is_no_diag, is_no_priority, get_ablation
@@ -48,8 +48,17 @@ def _export_tables(args, ext, attacks_eff_current, suffix=""):
     acc = set(ext or [])
     rows = []
     for aid, a in args.items():
-        rows.append([aid, "ACCEPTED" if aid in acc else "REJECTED", getattr(a,"priority",0), getattr(a,"topic",""), getattr(getattr(a,"action",None),"name","")])
-    _exp(outdir / f"af_selection{suffix}.csv", rows, ["arg_id","status","priority","topic","action"])
+        rows.append([
+            aid,
+            "ACCEPTED" if aid in acc else "REJECTED",
+            getattr(a, "priority", 0),
+            getattr(a, "topic", ""),
+            getattr(getattr(a, "action", None), "name", ""),
+            getattr(a, "source", "unknown"),
+            getattr(a, "role", ""),
+        ])
+    _exp(outdir / f"af_selection{suffix}.csv", rows,
+         ["arg_id","status","priority","topic","action","source","role"])
 
     rows2 = []
     for e in (attacks_eff_current or []):
@@ -57,6 +66,11 @@ def _export_tables(args, ext, attacks_eff_current, suffix=""):
         except: continue
         rows2.append([x,y])
     _exp(outdir / f"af_attacks{suffix}.csv", rows2, ["attacker","target"])
+
+    src_rows = summarize_sources(args, acc, attacks_eff_current)
+    if src_rows:
+        _exp(outdir / f"af_sources{suffix}.csv", src_rows,
+             ["source","role","total_args","accepted","rejected","acceptance_rate","attacks_out","attacks_in"])
 
 def _append_verifier_stats(detail: dict, *, policy: str, wind, bounds: dict, seed=None, csv_path=Path("runs/drone_verifier_stats.csv")):
     csv_path.parent.mkdir(parents=True, exist_ok=True)
@@ -197,7 +211,8 @@ def main(wind=Wind(vx=0.8, gust_amp=0.3, gust_period=5.0), seed=42):
             args[diag_id] = Argument(
                 id=diag_id, domain="drone", topic="diagnosis",
                 pre=tuple(), action=ActionSpec("noop", {}), effects=tuple(),
-                verify=VerifySpec("noop", {}), priority=getattr(args[chosen], "priority", 0) + 2
+                verify=VerifySpec("noop", {}), priority=getattr(args[chosen], "priority", 0) + 2,
+                source="drone_diag", role="diagnosis",
             )
             attacks = set(af.attacks); attacks.add((diag_id, chosen))
             if is_no_priority():

@@ -129,7 +129,7 @@ def _attach_reasons(att_rows, reason_edges):
 
 
 def render_html(run_name, events, final_selection_rows, final_attacks_rows,
-                sel_iters, att_iters, edge_reasons, run_dir: Path):
+                final_source_rows, sel_iters, att_iters, src_iters, edge_reasons, run_dir: Path):
     css = """
     <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial,sans-serif;padding:24px;max-width:1100px;margin:auto;background:#fff;}
@@ -155,7 +155,7 @@ def render_html(run_name, events, final_selection_rows, final_attacks_rows,
     # Final selection
     html_parts.append("<h2>Final selection (accepted vs rejected)</h2>")
     if final_selection_rows:
-        headers = ["arg_id", "status", "priority", "topic", "action"]
+        headers = ["arg_id", "status", "priority", "topic", "action", "source", "role"]
         html_parts.append(_table(headers, final_selection_rows))
     else:
         html_parts.append("<p class='muted'>No selection CSV found.</p>")
@@ -168,6 +168,14 @@ def render_html(run_name, events, final_selection_rows, final_attacks_rows,
         html_parts.append(_table(headers, merged))
     else:
         html_parts.append("<p class='muted'>No effective attacks CSV found.</p>")
+
+    # Per-source summary
+    html_parts.append("<h2>Agent/source contributions</h2>")
+    if final_source_rows:
+        headers = ["source","role","total_args","accepted","rejected","acceptance_rate","attacks_out","attacks_in"]
+        html_parts.append(_table(headers, final_source_rows))
+    else:
+        html_parts.append("<p class='muted'>No source summary CSV found.</p>")
 
     # Trajectory plots (single run)
     html_parts.append("<h2>Trajectory plots</h2>")
@@ -191,14 +199,17 @@ def render_html(run_name, events, final_selection_rows, final_attacks_rows,
     html_parts.append("<h2>Per-iteration snapshots (embedded)</h2>")
     if sel_iters:
         att_map = {iter_index_from_name(p): p for p in att_iters}
+        src_map = {iter_index_from_name(p): p for p in src_iters}
         for sp in sel_iters:
             idx = iter_index_from_name(sp)
             ap = att_map.get(idx)
+            src = src_map.get(idx)
             sel_rows = read_csv_rows(sp)
             att_rows = read_csv_rows(ap) if ap else []
+            src_rows = read_csv_rows(src) if src else []
             html_parts.append(f"<div class='iter'><h3>Iteration {idx:02d}</h3>")
             if sel_rows:
-                html_parts.append(_table(["arg_id","status","priority","topic","action"], sel_rows))
+                html_parts.append(_table(["arg_id","status","priority","topic","action","source","role"], sel_rows))
             else:
                 html_parts.append("<p class='muted'>No selection table.</p>")
             if att_rows:
@@ -206,6 +217,10 @@ def render_html(run_name, events, final_selection_rows, final_attacks_rows,
                 html_parts.append(_table(["attacker","target","reason"], merged))
             else:
                 html_parts.append("<p class='muted'>No attacks table.</p>")
+            if src_rows:
+                html_parts.append(_table(["source","role","total_args","accepted","rejected","acceptance_rate","attacks_out","attacks_in"], src_rows))
+            else:
+                html_parts.append("<p class='muted'>No source summary table.</p>")
             html_parts.append("</div>")
     else:
         html_parts.append("<p class='muted'>No iteration CSVs found.</p>")
@@ -268,16 +283,20 @@ def main():
     # Latest (final) CSVs; also collect iter CSVs for embedded sections
     sel_iters = list_iter_csvs(run_dir, "af_selection")
     att_iters = list_iter_csvs(run_dir, "af_attacks")
+    src_iters = list_iter_csvs(run_dir, "af_sources")
 
     sel_path = sel_iters[-1] if sel_iters else (run_dir / "af_selection.csv")
     att_path = att_iters[-1] if att_iters else (run_dir / "af_attacks.csv")
+    src_path = src_iters[-1] if src_iters else (run_dir / "af_sources.csv")
 
     final_selection_rows = read_csv_rows(sel_path)
     final_attacks_rows = read_csv_rows(att_path)
+    final_source_rows = read_csv_rows(src_path)
 
     html_out = Path(args.out) if args.out else (run_dir / "af_summary.html")
     html_out.write_text(
-        render_html(run_name, events, final_selection_rows, final_attacks_rows, sel_iters, att_iters, edge_reasons, run_dir),
+        render_html(run_name, events, final_selection_rows, final_attacks_rows,
+                    final_source_rows, sel_iters, att_iters, src_iters, edge_reasons, run_dir),
         encoding="utf-8"
     )
     print(f"Wrote: {html_out}")

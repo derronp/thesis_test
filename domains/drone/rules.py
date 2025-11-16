@@ -21,6 +21,8 @@ def generate_landing_AF(zone_radius: float=1.0, max_speed: float=0.6, max_time: 
         effects=("policy_set:aggressive",),
         verify=VerifySpec("after_sim_verify_all", {"zone_r": zone_radius, "max_speed": max_speed, "max_time": max_time}),
         priority=0,
+        source="drone_policy",
+        role="policy",
     )
     args["A_policy_cons"] = Argument(
         id="A_policy_cons",
@@ -31,6 +33,8 @@ def generate_landing_AF(zone_radius: float=1.0, max_speed: float=0.6, max_time: 
         effects=("policy_set:conservative",),
         verify=VerifySpec("after_sim_verify_all", {"zone_r": zone_radius, "max_speed": max_speed, "max_time": max_time}),
         priority=1,   # prefer safety when conflicts
+        source="drone_policy",
+        role="policy",
     )
 
     # Safety counter-arguments (symbolic): attack aggressive near-ground high descent

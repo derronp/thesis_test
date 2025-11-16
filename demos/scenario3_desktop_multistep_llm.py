@@ -3,7 +3,7 @@ import json, time
 from core.arguments import ArgFramework,ActionSpec, VerifySpec, Argument
 from core.af_solver import grounded_extension,filter_attacks_by_priority
 from core.planner import order_plan
-from core.logging_utils import log_event, export_csv
+from core.logging_utils import log_event, export_csv, summarize_sources
 from core.logging_utils import span, log_metrics
 from core.verify import (
     file_exists, file_hash_equal, proc_exitcode_ok,
@@ -32,7 +32,9 @@ def _make_diag_arg(failed_arg: Argument, reason: str) -> Argument:
         action=ActionSpec("noop", {}),
         effects=tuple(),
         verify=VerifySpec("noop", {}),
-        priority=(getattr(failed_arg, "priority", 0) + 1)
+        priority=(getattr(failed_arg, "priority", 0) + 1),
+        source="desktop_diag",
+        role="diagnosis",
     )
 
 def _verify_all(acts_root, v, fp):
@@ -70,10 +72,17 @@ def _export_tables(args, ext, attacks_eff_current, suffix=""):
     acc = set(ext or [])
     rows = []
     for aid, a in args.items():
-        rows.append([aid, "ACCEPTED" if aid in acc else "REJECTED", getattr(a,"priority",0),
-                     getattr(a,"topic",""), getattr(getattr(a,"action", None), "name","")])
+        rows.append([
+            aid,
+            "ACCEPTED" if aid in acc else "REJECTED",
+            getattr(a, "priority", 0),
+            getattr(a, "topic", ""),
+            getattr(getattr(a, "action", None), "name", ""),
+            getattr(a, "source", "unknown"),
+            getattr(a, "role", ""),
+        ])
     export_csv(outdir / f"af_selection{suffix}.csv", rows,
-               header=["arg_id","status","priority","topic","action"])
+               header=["arg_id","status","priority","topic","action","source","role"])
 
     rows2 = []
     for edge in (attacks_eff_current or []):
@@ -81,6 +90,11 @@ def _export_tables(args, ext, attacks_eff_current, suffix=""):
         except Exception: continue
         rows2.append([x,y])
     export_csv(outdir / f"af_attacks{suffix}.csv", rows2, header=["attacker","target"])
+
+    src_rows = summarize_sources(args, acc, attacks_eff_current)
+    if src_rows:
+        export_csv(outdir / f"af_sources{suffix}.csv", src_rows,
+                   header=["source","role","total_args","accepted","rejected","acceptance_rate","attacks_out","attacks_in"])
 
 def main(user_intent="Create a new dir 'proj', write a Python hello app in proj/main.py that prints 'Hello ISL-NANO', run it, and verify stdout and that main.py exists."):
     acts = LocalDesktopActuators("workspace_desktop")
