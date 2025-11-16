@@ -17,8 +17,7 @@ def generate_overtemp_AF(temp: float, T_HIGH: float, target: float, tol: float, 
             effects=("d/dt temp < 0",),
             verify=VerifySpec("in_band", {"metric":"temp","target":target,"tol":tol,"timeout_s":timeout_s}),
             priority=10,
-            deadline_ms=200,
-            source="policy"
+            deadline_ms=200
         ),
         "A_wait": Argument(
             id="A_wait",
@@ -29,8 +28,7 @@ def generate_overtemp_AF(temp: float, T_HIGH: float, target: float, tol: float, 
             effects=("d/dt temp ~ 0",),
             verify=VerifySpec("still_high", {"metric":"temp","threshold":T_HIGH,"timeout_s":10}),
             priority=1,
-            deadline_ms=200,
-            source="safety"
+            deadline_ms=200
         ),
         "A_heat": Argument(
             id="A_heat",

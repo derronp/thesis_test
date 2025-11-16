@@ -22,61 +22,6 @@ import os
 LOG_PATH = Path(os.environ.get("ISL_LOG_PATH", "runs/isl_nano_run_desktop_multistep_llm.jsonl"))
 LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-# --- Merge & filtering helpers ------------------------------------------------
-
-USE_RULES = False  # flip to True when you plug in a rules generator
-
-def _merge_af(
-    args_llm: dict,
-    edges_llm: set,
-    info_llm: dict,
-    args_rules: dict | None = None,
-    edges_rules: set | None = None,
-    info_rules: dict | None = None,
-):
-    """Combine LLM + rules args/attacks + reasons."""
-    args_rules = args_rules or {}
-    edges_rules = edges_rules or set()
-    info_rules = info_rules or {}
-
-    # llm/source default
-    for a in args_llm.values():
-        if getattr(a, "source", None) is None:
-            try:
-                object.__setattr__(a, "source", "llm")
-            except Exception:
-                setattr(a, "source", "llm")
-
-    merged_args = {**args_rules, **args_llm}
-    merged_edges = set(edges_rules) | set(edges_llm)
-    merged_info = dict(info_rules)
-    merged_info.update(info_llm)
-    return merged_args, merged_edges, merged_info
-
-def _filter_attacks_with_info(args: dict, edges_with_info: dict):
-    """Priority filter while keeping reasons for surviving edges."""
-    all_edges = set(edges_with_info.keys())
-    kept = filter_attacks_by_priority(args, all_edges)
-    kept_info = {e: edges_with_info[e] for e in kept if e in edges_with_info}
-    return kept, kept_info
-
-def generate_rules_for_intent(user_intent: str):
-    """
-    Optional: return (rules_args, rules_attacks, rules_attacks_info).
-    Keep empty defaults so today's behavior is unchanged.
-    """
-    rules_args = {}
-    rules_attacks = set()
-    rules_attacks_info = {}
-    # Example if you want to plug a real generator later:
-    # from domains.desktop.rules_agentos import generate_agentos_AF
-    # goals = ["ide_hello"] if "hello" in user_intent.lower() else []
-    # af_rules = generate_agentos_AF(goals, artifacts={"hello_stdout":"artifacts/hello_cli_stdout.txt","search_png":"artifacts/search.png"})
-    # rules_args = af_rules.args
-    # rules_attacks = af_rules.attacks
-    # rules_attacks_info = {tuple(e): {"reason": "rules"} for e in rules_attacks}
-    return rules_args, rules_attacks, rules_attacks_info
-
 
 def _make_diag_arg(failed_arg: Argument, reason: str) -> Argument:
     return Argument(
@@ -106,7 +51,7 @@ def _verify_all(acts_root, v, fp):
             break
     return all_ok
 
-def _export_tables(args, ext, attacks_eff_current, attacks_info_current=None, suffix=""):
+def _export_tables(args, ext, attacks_eff_current, suffix=""):
     try:
         from core.logging_utils import export_csv
     except Exception:
@@ -123,38 +68,19 @@ def _export_tables(args, ext, attacks_eff_current, attacks_info_current=None, su
         globals()["_af_iter"] = iter_idx + 1
 
     acc = set(ext or [])
-    # Selection: add domain + source
     rows = []
     for aid, a in args.items():
-        rows.append([
-            aid,
-            "ACCEPTED" if aid in acc else "REJECTED",
-            getattr(a, "priority", 0),
-            getattr(a, "topic", ""),
-            getattr(getattr(a, "action", None), "name", ""),
-            getattr(a, "domain", ""),
-            getattr(a, "source", "llm"),
-        ])
+        rows.append([aid, "ACCEPTED" if aid in acc else "REJECTED", getattr(a,"priority",0),
+                     getattr(a,"topic",""), getattr(getattr(a,"action", None), "name","")])
     export_csv(outdir / f"af_selection{suffix}.csv", rows,
-               header=["arg_id","status","priority","topic","action","domain","source"])
+               header=["arg_id","status","priority","topic","action"])
 
-    # Attacks: attacker, target, reason
     rows2 = []
-    attacks_info_current = attacks_info_current or {}
     for edge in (attacks_eff_current or []):
-        try:
-            x, y = edge
-        except Exception:
-            continue
-        reason = ""
-        info = attacks_info_current.get(edge) or attacks_info_current.get((x, y))
-        if isinstance(info, dict):
-            reason = info.get("reason", "")
-        elif isinstance(info, str):
-            reason = info
-        rows2.append([x, y, reason])
-    export_csv(outdir / f"af_attacks{suffix}.csv", rows2, header=["attacker","target","reason"])
-
+        try: x,y = edge
+        except Exception: continue
+        rows2.append([x,y])
+    export_csv(outdir / f"af_attacks{suffix}.csv", rows2, header=["attacker","target"])
 
 def main(user_intent="Create a new dir 'proj', write a Python hello app in proj/main.py that prints 'Hello ISL-NANO', run it, and verify stdout and that main.py exists."):
     acts = LocalDesktopActuators("workspace_desktop")
@@ -180,39 +106,19 @@ def main(user_intent="Create a new dir 'proj', write a Python hello app in proj/
 
         with span(fp, "reason", {"iter": af_iters, "phase":"nl_to_formal"}):
             llm_args, attacks = adapter.generate_arguments(context)
-        # Normalize LLM attacks & reasons
-        attacks_edges_llm = set()
-        attacks_info_llm = {}
-        if attacks_raw:
-            for e in attacks_raw:
-                # Allow (from,to), ["from","to"], or {"from":..,"to":..,"reason":..}
+        # Normalize attacks
+        if attacks is None:
+            attacks = set()
+        elif isinstance(attacks, set):
+            pass
+        else:
+            _att_set = set()
+            for e in attacks:
                 if isinstance(e, (list, tuple)) and len(e) >= 2:
-                    edge = (e[0], e[1])
-                    attacks_edges_llm.add(edge)
+                    _att_set.add((e[0], e[1]))
                 elif isinstance(e, dict) and "from" in e and "to" in e:
-                    edge = (e["from"], e["to"])
-                    attacks_edges_llm.add(edge)
-                    r = e.get("reason")
-                    if r:
-                        attacks_info_llm[edge] = {"reason": r}
-
-        args_llm = {a.id: a for a in llm_args}
-        
-        # Optional rule AF
-        rules_args, rules_edges, rules_info = ({}, set(), {})
-        if USE_RULES:
-            rules_args, rules_edges, rules_info = generate_rules_for_intent(user_intent)
-
-        # Merge LLM + rules
-        args, attack_edges_all, attacks_info_all = _merge_af(
-            args_llm=args_llm,
-            edges_llm=attacks_edges_llm,
-            info_llm=attacks_info_llm,
-            args_rules=rules_args,
-            edges_rules=rules_edges,
-            info_rules=rules_info,
-        )
-
+                    _att_set.add((e["from"], e["to"]))
+            attacks = _att_set
 
         # (Optional) DEBUG failing verifier (keep commented in happy path)
         # for a in llm_args:
@@ -233,10 +139,9 @@ def main(user_intent="Create a new dir 'proj', write a Python hello app in proj/
 
         with span(fp, "reason", {"iter": af_iters, "phase":"solve"}):
             if is_no_priority():
-                attacks_eff_current = set(attack_edges_all)
-                attacks_info_eff = dict(attacks_info_all)
+                attacks_eff_current = attack_edges
             else:
-                attacks_eff_current, attacks_info_eff = _filter_attacks_with_info(args, attacks_info_all)
+                attacks_eff_current = filter_attacks_by_priority(args, attack_edges)
 
             if is_no_af():
                 ext = set(args.keys())
@@ -246,16 +151,14 @@ def main(user_intent="Create a new dir 'proj', write a Python hello app in proj/
                 ext = grounded_extension(af)
             af_iters += 1
 
-        log_event(fp, "arguments_llm", {"ids": list(args_llm.keys())})
-        if attacks_edges_llm:
-            # Keep raw LLM edges separate in the log for transparency
-            log_event(fp, "attacks_llm", {"edges": [list(x) for x in attacks_edges_llm]})
-
+        log_event(fp, "arguments_llm", {"ids": list(args.keys())})
+        if attacks:
+            log_event(fp, "attacks_llm", {"edges": list(list(x) for x in attacks)})
 
         log_event(fp, "grounded_extension", {"accepted": sorted(list(ext))})
         steps = order_plan(af.args, ext)
         log_event(fp, "plan", {"steps": [s.arg_id for s in steps]})
-        _export_tables(args, ext, attacks_eff_current, attacks_info_eff, suffix=f"_iter{af_iters-1:02d}")
+        _export_tables(args, ext, attacks_eff_current, suffix=f"_iter{af_iters-1:02d}")
 
         # Simple fact set from filesystem
         facts = set()
@@ -286,26 +189,16 @@ def main(user_intent="Create a new dir 'proj', write a Python hello app in proj/
                     if first_fail_t is None: first_fail_t = time.perf_counter()
                     diag = _make_diag_arg(a, "verification_failed")
                     args[diag.id] = diag; attacks.add((diag.id, a.id))
-                    attacks_all = set(attacks_info_all.keys())
-                    attacks_all.add((diag.id, a.id))
-                    attacks_info_all[(diag.id, a.id)] = {"reason": "diagnosis"}
-                    # Recompute with (maybe) priority filtering:
                     with span(fp, "reason", {"iter": af_iters, "phase":"diagnosis"}):
-                        if is_no_priority():
-                            attacks_eff = attacks_all
-                            attacks_info_eff = dict(attacks_info_all)
-                        else:
-                            attacks_eff, attacks_info_eff = _filter_attacks_with_info(args, attacks_info_all)
+                        attacks_eff = attacks if is_no_priority() else filter_attacks_by_priority(args, attacks)
                         af = ArgFramework(args=args, attacks=attacks_eff)
                         log_event(fp, "diagnosis", {"diag": diag.id, "attacks_add": [(diag.id, a.id)]})
                         ext = grounded_extension(af)
                         af_iters += 1
-                    # ... then plan, export with _export_tables(..., attacks_info_eff, ...)
-
                     log_event(fp, "grounded_extension", {"accepted": sorted(list(ext))})
                     steps = order_plan(af.args, ext)
                     log_event(fp, "plan", {"steps": [s.arg_id for s in steps]})
-                    _export_tables(args, ext, attacks_eff_current, attacks_info_eff, suffix=f"_iter{af_iters-1:02d}")
+                    _export_tables(args, ext, attacks_eff, suffix=f"_iter{af_iters-1:02d}")
                     queue = list(steps); continue
 
             elif a.action.name == "write_file":
@@ -323,26 +216,16 @@ def main(user_intent="Create a new dir 'proj', write a Python hello app in proj/
                     if first_fail_t is None: first_fail_t = time.perf_counter()
                     diag = _make_diag_arg(a, "verification_failed")
                     args[diag.id] = diag; attacks.add((diag.id, a.id))
-                    attacks_all = set(attacks_info_all.keys())
-                    attacks_all.add((diag.id, a.id))
-                    attacks_info_all[(diag.id, a.id)] = {"reason": "diagnosis"}
-                    # Recompute with (maybe) priority filtering:
                     with span(fp, "reason", {"iter": af_iters, "phase":"diagnosis"}):
-                        if is_no_priority():
-                            attacks_eff = attacks_all
-                            attacks_info_eff = dict(attacks_info_all)
-                        else:
-                            attacks_eff, attacks_info_eff = _filter_attacks_with_info(args, attacks_info_all)
+                        attacks_eff = attacks if is_no_priority() else filter_attacks_by_priority(args, attacks)
                         af = ArgFramework(args=args, attacks=attacks_eff)
                         log_event(fp, "diagnosis", {"diag": diag.id, "attacks_add": [(diag.id, a.id)]})
                         ext = grounded_extension(af)
                         af_iters += 1
-                    # ... then plan, export with _export_tables(..., attacks_info_eff, ...)
-
                     log_event(fp, "grounded_extension", {"accepted": sorted(list(ext))})
                     steps = order_plan(af.args, ext)
                     log_event(fp, "plan", {"steps": [s.arg_id for s in steps]})
-                    _export_tables(args, ext, attacks_eff_current, attacks_info_eff, suffix=f"_iter{af_iters-1:02d}")
+                    _export_tables(args, ext, attacks_eff, suffix=f"_iter{af_iters-1:02d}")
                     queue = list(steps); continue
 
             elif a.action.name == "run_proc":
@@ -373,7 +256,7 @@ def main(user_intent="Create a new dir 'proj', write a Python hello app in proj/
                     steps_executed += 1
                 if res["returncode"] != 0:
                     log_event(fp, "verify", {"check":"proc_exitcode_ok","status":"FAIL","returncode":res["returncode"]})
-                    _export_tables(args, ext, attacks_eff_current, attacks_info_eff, suffix=f"_iter{af_iters-1:02d}")
+                    _export_tables(args, ext, attacks_eff_current, suffix=f"_iter{af_iters-1:02d}")
                     emit_fail("process failed")
                     log_metrics(fp, status="FAIL", steps_to_success=steps_executed, af_iters=af_iters)
                     return
@@ -386,26 +269,16 @@ def main(user_intent="Create a new dir 'proj', write a Python hello app in proj/
                     if first_fail_t is None: first_fail_t = time.perf_counter()
                     diag = _make_diag_arg(a, "verification_failed")
                     args[diag.id] = diag; attacks.add((diag.id, a.id))
-                    attacks_all = set(attacks_info_all.keys())
-                    attacks_all.add((diag.id, a.id))
-                    attacks_info_all[(diag.id, a.id)] = {"reason": "diagnosis"}
-                    # Recompute with (maybe) priority filtering:
                     with span(fp, "reason", {"iter": af_iters, "phase":"diagnosis"}):
-                        if is_no_priority():
-                            attacks_eff = attacks_all
-                            attacks_info_eff = dict(attacks_info_all)
-                        else:
-                            attacks_eff, attacks_info_eff = _filter_attacks_with_info(args, attacks_info_all)
+                        attacks_eff = attacks if is_no_priority() else filter_attacks_by_priority(args, attacks)
                         af = ArgFramework(args=args, attacks=attacks_eff)
                         log_event(fp, "diagnosis", {"diag": diag.id, "attacks_add": [(diag.id, a.id)]})
                         ext = grounded_extension(af)
                         af_iters += 1
-                    # ... then plan, export with _export_tables(..., attacks_info_eff, ...)
-
                     log_event(fp, "grounded_extension", {"accepted": sorted(list(ext))})
                     steps = order_plan(af.args, ext)
                     log_event(fp, "plan", {"steps": [s.arg_id for s in steps]})
-                    _export_tables(args, ext, attacks_eff_current, attacks_info_eff, suffix=f"_iter{af_iters-1:02d}")
+                    _export_tables(args, ext, attacks_eff, suffix=f"_iter{af_iters-1:02d}")
                     queue = list(steps); continue
 
             elif a.action.name == "noop":
@@ -420,45 +293,35 @@ def main(user_intent="Create a new dir 'proj', write a Python hello app in proj/
                     if first_fail_t is None: first_fail_t = time.perf_counter()
                     diag = _make_diag_arg(a, "verification_failed")
                     args[diag.id] = diag; attacks.add((diag.id, a.id))
-                    attacks_all = set(attacks_info_all.keys())
-                    attacks_all.add((diag.id, a.id))
-                    attacks_info_all[(diag.id, a.id)] = {"reason": "diagnosis"}
-                    # Recompute with (maybe) priority filtering:
                     with span(fp, "reason", {"iter": af_iters, "phase":"diagnosis"}):
-                        if is_no_priority():
-                            attacks_eff = attacks_all
-                            attacks_info_eff = dict(attacks_info_all)
-                        else:
-                            attacks_eff, attacks_info_eff = _filter_attacks_with_info(args, attacks_info_all)
+                        attacks_eff = attacks if is_no_priority() else filter_attacks_by_priority(args, attacks)
                         af = ArgFramework(args=args, attacks=attacks_eff)
                         log_event(fp, "diagnosis", {"diag": diag.id, "attacks_add": [(diag.id, a.id)]})
                         ext = grounded_extension(af)
                         af_iters += 1
-                    # ... then plan, export with _export_tables(..., attacks_info_eff, ...)
-
                     log_event(fp, "grounded_extension", {"accepted": sorted(list(ext))})
                     steps = order_plan(af.args, ext)
                     log_event(fp, "plan", {"steps": [s.arg_id for s in steps]})
-                    _export_tables(args, ext, attacks_eff_current, attacks_info_eff, suffix=f"_iter{af_iters-1:02d}")
+                    _export_tables(args, ext, attacks_eff, suffix=f"_iter{af_iters-1:02d}")
                     queue = list(steps); continue
 
             else:
                 log_event(fp, "actuate", {"arg": a.id, "action": a.action.name, "status":"UNSUPPORTED"})
-                _export_tables(args, ext, attacks_eff_current, attacks_info_eff, suffix=f"_iter{af_iters-1:02d}")
+                _export_tables(args, ext, attacks_eff_current, suffix=f"_iter{af_iters-1:02d}")
                 emit_fail(f"unsupported action:{a.action.name}")
                 log_metrics(fp, status="FAIL", steps_to_success=steps_executed, af_iters=af_iters)
                 return
 
         if queue:
             iter_idx = globals().get("_af_iter", 0)
-            _export_tables(args, ext, attacks_eff_current, attacks_info_eff, suffix=f"_iter{af_iters-1:02d}")
+            _export_tables(args, ext, attacks_eff_current, suffix=f"_iter{iter_idx:02d}")
             globals()["_af_iter"] = iter_idx + 1
             emit_fail("unmet preconditions remain")
             log_metrics(fp, status="FAIL", steps_to_success=steps_executed, af_iters=af_iters)
             return
 
         iter_idx = globals().get("_af_iter", 0)
-        _export_tables(args, ext, attacks_eff_current, attacks_info_eff, suffix=f"_iter{af_iters-1:02d}")
+        _export_tables(args, ext, attacks_eff_current, suffix=f"_iter{iter_idx:02d}")
         globals()["_af_iter"] = iter_idx + 1
         emit_ok(f"Desktop multistep LLM plan executed and verified. Log: {LOG_PATH}")
         log_metrics(fp, status="PASS", steps_to_success=steps_executed, af_iters=af_iters,

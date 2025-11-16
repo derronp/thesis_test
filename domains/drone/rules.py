@@ -9,60 +9,32 @@ from core.arguments import Argument, ActionSpec, VerifySpec, ArgFramework
 # Preconditions: none (both enabled).
 # Verify: we'll evaluate after sim for touchdown zone & final speed constraints.
 
-def generate_overtemp_AF(temp: float, T_HIGH: float, target: float, tol: float, timeout_s: float):
-    """Generate arguments and attacks for an over-temperature alarm from current state."""
-    if not (temp > T_HIGH):
-        # no alarm → empty AF
-        return ArgFramework(args={}, attacks=set())
+def generate_landing_AF(zone_radius: float=1.0, max_speed: float=0.6, max_time: float=20.0):
+    args: Dict[str, Argument] = {}
 
-    args = {
-        "A_cool": Argument(
-            id="A_cool",
-            domain="plant",
-            topic="overtemp_alarm",
-            pre=("temp > T_HIGH",),
-            action=ActionSpec("open_valve", {"valve": "V_cool", "u": 0.7}),
-            effects=("d/dt temp < 0",),
-            verify=VerifySpec("in_band", {"metric": "temp", "target": target, "tol": tol, "timeout_s": timeout_s}),
-            priority=10,
-            deadline_ms=200,
-            source="policy",
-        ),
-        "A_wait": Argument(
-            id="A_wait",
-            domain="plant",
-            topic="overtemp_alarm",
-            pre=("temp > T_HIGH",),
-            action=ActionSpec("noop", {}),
-            effects=("d/dt temp ~ 0",),
-            verify=VerifySpec("still_high", {"metric": "temp", "threshold": T_HIGH, "timeout_s": 10}),
-            priority=1,
-            deadline_ms=200,
-            source="safety",
-        ),
-        "A_heat": Argument(
-            id="A_heat",
-            domain="plant",
-            topic="overtemp_alarm",
-            pre=("temp > T_HIGH",),
-            action=ActionSpec("set_heater_power", {"p": 1.0}),
-            effects=("d/dt temp > 0",),
-            verify=VerifySpec("in_band", {"metric": "temp", "target": target, "tol": tol, "timeout_s": timeout_s}),
-            priority=0,
-            deadline_ms=200,
-            source="policy",  # explicitly tag
-        ),
-    }
+    args["A_policy_aggr"] = Argument(
+        id="A_policy_aggr",
+        domain="drone",
+        topic="policy",
+        pre=tuple(),
+        action=ActionSpec("set_policy", {"name": "aggressive"}),
+        effects=("policy_set:aggressive",),
+        verify=VerifySpec("after_sim_verify_all", {"zone_r": zone_radius, "max_speed": max_speed, "max_time": max_time}),
+        priority=0,
+    )
+    args["A_policy_cons"] = Argument(
+        id="A_policy_cons",
+        domain="drone",
+        topic="policy",
+        pre=tuple(),
+        action=ActionSpec("set_policy", {"name": "conservative"}),
+        effects=("policy_set:conservative",),
+        verify=VerifySpec("after_sim_verify_all", {"zone_r": zone_radius, "max_speed": max_speed, "max_time": max_time}),
+        priority=1,   # prefer safety when conflicts
+    )
 
+    # Safety counter-arguments (symbolic): attack aggressive near-ground high descent
     attacks = {
-        ("A_cool", "A_wait"),
-        ("A_cool", "A_heat"),
-        # NOTE: no attack back on A_cool → A_cool is unattacked under perfect conditions
+        ("A_policy_cons", "A_policy_aggr"),   # safety prefers conservative over aggressive
     }
-    af = ArgFramework(args=args, attacks=attacks)
-
-    af.attacks_info = [
-        {"from": "A_cool", "to": "A_wait", "reason": "Cooling action dominates passive waiting under alarm.", "source": "policy"},
-        {"from": "A_cool", "to": "A_heat", "reason": "Heating conflicts with alarm resolution; cooling preferred.", "source": "policy"},
-    ]
-    return af
+    return ArgFramework(args=args, attacks=attacks)

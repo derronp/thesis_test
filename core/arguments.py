@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, Tuple, Iterable, Set, List
+from typing import Dict, Tuple, Set
 
 @dataclass(frozen=True)
 class ActionSpec:
@@ -22,9 +22,6 @@ class Argument:
     verify: VerifySpec
     priority: int = 0
     deadline_ms: int = 0
-    # NEW: which agent/source contributed this argument
-    # e.g., "policy", "safety", "diagnosis", "planner", "llm"
-    source: str = "rule"
 
 @dataclass
 class ArgFramework:
